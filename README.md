@@ -25,6 +25,7 @@ Some ideas to use as inspiration but feel free to be creative:
     - `beautiful-soup`
     - `nltk`
 
+- Alternatively, you could refer to the [`hugovk` JSON list of the top 1000 packages](https://raw.githubusercontent.com/hugovk/top-pypi-packages/main/top-pypi-packages.json) from PyPi.
 - Write a **GUI application** that takes the name of a GitHub repository as an input which generates a series of commit/contributor analyses and plots. You could represent the density of commits (adding code, removing code, etc.) Think of it as an activity dashboard generated for any repo name it is given.
 - Continue to work with the **Bluesky Firehose**. Gather 100k posts or comments into Kafka and perform a simple sentiment analysis on that text. Identify the top 20 topics or tags for that time period. (Note: you could learn how to code/run this yourself using NLTK, or articles like this from Hugging Face. Or, this might be something LLMs are quite good at. Can you submit your request to the ChatGPT or Claude API via code?)
 - Continue to work with the **Wikipedia Event Stream**. What interesting trends do you find when you gather 50k messages?
