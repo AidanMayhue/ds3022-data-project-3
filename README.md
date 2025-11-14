@@ -66,9 +66,9 @@ What does "something interesting" look like? Here are some criteria to use when 
 - Draws upon skills and underastanding from other courses.
 - Each team member should plan on contributing an estimated 6-10 hours total for this project.
 
-**Weak project**: "I collected 10,000 GitHub stars and made a bar chart of their programming languages"
+**Weak project**: "We collected 10,000 GitHub stars and made a bar chart of their programming languages"
 
-**Strong project**: "I ingested 1 month of GitHub events from the GH Archive, used DuckDB to ingest and identify repos with sudden star velocity changes, discovered that repos emphasizing 'performance' gained stars 3x faster in systems languages while 'simplicity' messaging dominated in web frameworks, and built a Prefect workflow that could monitor this in real-time for trend detection."
+**Strong project**: "We ingested the full history of commits for 5 data science packages, used DuckDB to identify repos with emerging velocity changes in commits, discovered that repos emphasizing 'performance' gained both commits and stars 3x faster in machine learning while 'simplicity' messaging dominated in plotting and viz tools, then built a Prefect workflow that could monitor this in real-time for trend detection for any specific repo."
 
 You may work with up to ONE (1) partner on this project. Any student in either DS3022 section can be your partner. You may also choose to work alone.
 
