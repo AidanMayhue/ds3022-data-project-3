@@ -34,36 +34,36 @@ Some ideas to use as inspiration but feel free to be creative:
 
 What does "something interesting" look like? Here are some criteria to use when deciding on a good data source and deliverables:
 
-- Scale & Complexity
+- **Scale & Complexity**
     - Processing of substantial data volumes (50K+ records minimum, ideally 100K-1M+)
     - Multiple data transformation steps beyond simple filtering
     - Handling of real-world messiness: missing values, inconsistent formats, rate limits, API pagination
     - Evidence that the data presented genuine engineering challenges, not just a single API call
-- Technical Depth & Tool Integration
+- **Technical Depth & Tool Integration**
     - Use of at least 2-3 modern data engineering tools from the course (streaming platforms, workflow orchestrators, databases, containerization)
     - Thoughtful tool selection with clear rationale for why each was chosen
     - Evidence of proper data pipeline architecture (ingestion → processing → storage → analysis)
     - Code that demonstrates understanding beyond copy-pasting tutorials
-- Insight Generation Beyond Description
+- **Insight Generation Beyond Description**
     - Analysis that reveals non-obvious patterns or trends
     - Goes beyond "here's what the data looks like" to "here's what the data means"
     - Comparative analysis, temporal trends, anomaly detection, or predictive elements
     - Clear articulation of at least one surprising or counterintuitive finding
     - Visualizations that illuminate patterns humans couldn't spot in raw data
-- Real-World Relevance & Domain Context
+- **Real-World Relevance & Domain Context**
     - Connection to actual problems or questions people care about
     - Domain knowledge application (understanding what the data represents, not just treating it as abstract numbers)
     - Consideration of data quality, bias, or limitations in interpretation
     - Potential implications or applications of the findings
     - Context that shows why this analysis matters to developers, businesses, or society
-- Reproducibility & Documentation
+- **Reproducibility & Documentation**
     - Clear setup instructions that enable others to run the pipeline
     - Well-organized repository structure with logical separation of concerns
     - Environment specifications (requirements.txt, docker-compose.yml, etc.)
     - Meaningful code comments explaining why decisions were made, not just what the code does
     - Discussion of challenges encountered and how they were overcome
     - Honest acknowledgment of limitations or trade-offs
-- Draw upon skills and underastanding from other courses.
+- Draws upon skills and underastanding from other courses.
 - Each team member should plan on contributing an estimated 6-10 hours total for this project.
 
 **Weak project**: "I collected 10,000 GitHub stars and made a bar chart of their programming languages"
