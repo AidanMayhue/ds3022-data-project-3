@@ -1,5 +1,7 @@
 import os
 import duckdb
+import signal
+import sys
 from quixstreams import Application
 
 # ----------------------------
@@ -16,15 +18,11 @@ app = Application(
     consumer_extra_config={
         "broker.address.family": "v4",
         "auto.offset.reset": "earliest",
-        "enable.auto.commit": False   # manually commit after DB write
+        "enable.auto.commit": False
     }
 )
 
-topic = app.topic(
-    name="bluesky-events",
-    value_deserializer="json"
-)
-
+topic = app.topic(name="bluesky-events", value_deserializer="json")
 consumer = app.get_consumer()
 consumer.subscribe([topic.name])
 
@@ -32,56 +30,83 @@ consumer.subscribe([topic.name])
 # DuckDB Setup
 # ----------------------------
 db = duckdb.connect("bluesky.db")
-
-# Create table if not exists
 db.execute("""
 CREATE TABLE IF NOT EXISTS bluesky_events (
     rev TEXT,
     commit_time TIMESTAMP,
     repo TEXT,
-    record JSON -- or VARCHAR if you prefer
+    record JSON
 )
 """)
 
-print("Consumer started. Writing messages into DuckDB...\n")
+# ----------------------------
+# Graceful shutdown
+# ----------------------------
+def shutdown(signum, frame):
+    print("\nStopping consumer...")
+    consumer.close()
+    db.close()
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, shutdown)
+signal.signal(signal.SIGTERM, shutdown)
 
 # ----------------------------
-# Main Loop
+# Main loop with batch insert
 # ----------------------------
+BATCH_SIZE = 50  # adjust based on throughput
+batch = []
+
+print("Consumer started. Writing messages into DuckDB...")
+
 try:
     while True:
-        msg = consumer.poll(1.0)
+        msg = consumer.poll(timeout=1.0)
         if msg is None:
             continue
-        
-        # Deserialize message
-        key = topic.deserialize_key(msg.key())
-        value = topic.deserialize_value(msg.value())
 
-        # Extract fields of interest
+        try:
+            key = topic.deserialize_key(msg.key())
+            value = topic.deserialize_value(msg.value())
+        except Exception as e:
+            print(f"Skipping invalid message: {e}")
+            continue
+
         rev = key
-        commit_time = value["commit"]["time"]
-        repo = value["commit"]["repo"]
-        record_json = value  # full JSON object
+        commit_time = value.get("commit", {}).get("time")
+        repo = value.get("commit", {}).get("repo")
+        record_json = value
 
-        # Insert into DuckDB
-        db.execute(
-            """
-            INSERT INTO bluesky_events (rev, commit_time, repo, record)
-            VALUES (?, ?, ?, ?)
-            """,
-            [rev, commit_time, repo, record_json]
-        )
+        batch.append((rev, commit_time, repo, record_json))
 
-        # Important: commit Kafka offset only after a successful insert
-        consumer.commit(asynchronous=False)
-
-        print(f"Inserted rev={rev} into DuckDB.")
+        # Insert batch
+        if len(batch) >= BATCH_SIZE:
+            try:
+                db.executemany(
+                    "INSERT INTO bluesky_events (rev, commit_time, repo, record) VALUES (?, ?, ?, ?)",
+                    batch
+                )
+                consumer.commit(asynchronous=False)
+                print(f"Inserted batch of {len(batch)} messages.")
+                batch.clear()
+            except Exception as e:
+                print(f"Error inserting batch: {e}")
+                # Do not commit offsets if DB insert fails
 
 except KeyboardInterrupt:
-    print("\nStopping consumer...")
-
+    shutdown(None, None)
 finally:
+    if batch:
+        # Flush remaining batch before exit
+        try:
+            db.executemany(
+                "INSERT INTO bluesky_events (rev, commit_time, repo, record) VALUES (?, ?, ?, ?)",
+                batch
+            )
+            consumer.commit(asynchronous=False)
+            print(f"Inserted final batch of {len(batch)} messages.")
+        except Exception as e:
+            print(f"Error inserting final batch: {e}")
     consumer.close()
     db.close()
     print("Consumer closed & DB connection closed.")
