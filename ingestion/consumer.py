@@ -1,16 +1,21 @@
 import os
 import duckdb
-import signal
-import sys
 from quixstreams import Application
+import json
+import duckdb
 
-# ----------------------------
-# Kafka Configuration
-# ----------------------------
-KAFKA_BROKER = os.getenv(
-    "KAFKA_BROKER",
-    "127.0.0.1:19092,127.0.0.1:29092,127.0.0.1:39092"
-)
+def main():
+    # Connect to DuckDB (creates file if it doesn't exist)
+    conn = duckdb.connect("events.duckdb")
+
+    # Create table if it doesn't already exist
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS events (
+            kafka_key TEXT,
+            kafka_offset BIGINT,
+            event_json JSON
+        )
+    """)
 
 app = Application(
     broker_address=KAFKA_BROKER,
@@ -18,11 +23,15 @@ app = Application(
     consumer_extra_config={
         "broker.address.family": "v4",
         "auto.offset.reset": "earliest",
-        "enable.auto.commit": False
+        "enable.auto.commit": False   # manually commit after DB write
     }
 )
 
-topic = app.topic(name="bluesky-events", value_deserializer="json")
+topic = app.topic(
+    name="bluesky-events",
+    value_deserializer="json"
+)
+
 consumer = app.get_consumer()
 consumer.subscribe([topic.name])
 
@@ -30,83 +39,56 @@ consumer.subscribe([topic.name])
 # DuckDB Setup
 # ----------------------------
 db = duckdb.connect("bluesky.db")
+
+# Create table if not exists
 db.execute("""
 CREATE TABLE IF NOT EXISTS bluesky_events (
     rev TEXT,
     commit_time TIMESTAMP,
     repo TEXT,
-    record JSON
+    record JSON -- or VARCHAR if you prefer
 )
 """)
 
-# ----------------------------
-# Graceful shutdown
-# ----------------------------
-def shutdown(signum, frame):
-    print("\nStopping consumer...")
-    consumer.close()
-    db.close()
-    sys.exit(0)
-
-signal.signal(signal.SIGINT, shutdown)
-signal.signal(signal.SIGTERM, shutdown)
+print("Consumer started. Writing messages into DuckDB...\n")
 
 # ----------------------------
-# Main loop with batch insert
+# Main Loop
 # ----------------------------
-BATCH_SIZE = 50  # adjust based on throughput
-batch = []
-
-print("Consumer started. Writing messages into DuckDB...")
-
 try:
     while True:
-        msg = consumer.poll(timeout=1.0)
+        msg = consumer.poll(1.0)
         if msg is None:
             continue
+        
+        # Deserialize message
+        key = topic.deserialize_key(msg.key())
+        value = topic.deserialize_value(msg.value())
 
-        try:
-            key = topic.deserialize_key(msg.key())
-            value = topic.deserialize_value(msg.value())
-        except Exception as e:
-            print(f"Skipping invalid message: {e}")
-            continue
-
+        # Extract fields of interest
         rev = key
-        commit_time = value.get("commit", {}).get("time")
-        repo = value.get("commit", {}).get("repo")
-        record_json = value
+        commit_time = value["commit"]["time"]
+        repo = value["commit"]["repo"]
+        record_json = value  # full JSON object
 
-        batch.append((rev, commit_time, repo, record_json))
+        # Insert into DuckDB
+        db.execute(
+            """
+            INSERT INTO bluesky_events (rev, commit_time, repo, record)
+            VALUES (?, ?, ?, ?)
+            """,
+            [rev, commit_time, repo, record_json]
+        )
 
-        # Insert batch
-        if len(batch) >= BATCH_SIZE:
-            try:
-                db.executemany(
-                    "INSERT INTO bluesky_events (rev, commit_time, repo, record) VALUES (?, ?, ?, ?)",
-                    batch
-                )
-                consumer.commit(asynchronous=False)
-                print(f"Inserted batch of {len(batch)} messages.")
-                batch.clear()
-            except Exception as e:
-                print(f"Error inserting batch: {e}")
-                # Do not commit offsets if DB insert fails
+        # Important: commit Kafka offset only after a successful insert
+        consumer.commit(asynchronous=False)
+
+        print(f"Inserted rev={rev} into DuckDB.")
 
 except KeyboardInterrupt:
-    shutdown(None, None)
+    print("\nStopping consumer...")
+
 finally:
-    if batch:
-        # Flush remaining batch before exit
-        try:
-            db.executemany(
-                "INSERT INTO bluesky_events (rev, commit_time, repo, record) VALUES (?, ?, ?, ?)",
-                batch
-            )
-            consumer.commit(asynchronous=False)
-            print(f"Inserted final batch of {len(batch)} messages.")
-        except Exception as e:
-            print(f"Error inserting final batch: {e}")
     consumer.close()
     db.close()
     print("Consumer closed & DB connection closed.")
