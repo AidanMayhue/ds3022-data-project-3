@@ -1,78 +1,81 @@
-import os
+from quixstreams import Application
 import json
 import duckdb
-from quixstreams import Application
+import time
 
-KAFKA_BROKER = "localhost:9092"
+KAFKA_BROKER = "127.0.0.1:19092,127.0.0.1:29092,127.0.0.1:39092"
+TOPIC_NAME = "bluesky-events"
+DUCKDB_FILE = "events.duckdb"
 
-# ----------------------------
-# Kafka setup
-# ----------------------------
-app = Application(
-    broker_address=KAFKA_BROKER,
-    consumer_group="bluesky-duck-consumer",
-    consumer_extra_config={
-        "broker.address.family": "v4",
-        "auto.offset.reset": "earliest",
-        "enable.auto.commit": False
-    }
-)
+def main():
+    # Connect to DuckDB (creates file if it doesn't exist)
+    conn = duckdb.connect(DUCKDB_FILE)
 
-topic = app.topic(
-    name="bluesky-events",
-    value_deserializer="json"
-)
-
-consumer = app.get_consumer()
-consumer.subscribe([topic.name])
-
-# ----------------------------
-# DuckDB setup
-# ----------------------------
-db = duckdb.connect("bluesky.db")
-db.execute("""
-CREATE TABLE IF NOT EXISTS bluesky_events (
-    rev TEXT,
-    commit_time TIMESTAMP,
-    repo TEXT,
-    record JSON
-)
-""")
-
-print("Consumer started. Writing messages into DuckDB...\n")
-
-# ----------------------------
-# Main Loop
-# ----------------------------
-try:
-    while True:
-        msg = consumer.poll(1.0)
-        if msg is None:
-            continue
-        
-        key = topic.deserialize_key(msg.key())
-        value = topic.deserialize_value(msg.value())
-
-        rev = key
-        commit_time = value["commit"]["time"]
-        repo = value["commit"]["repo"]
-        record_json = json.dumps(value)
-
-        db.execute(
-            """
-            INSERT INTO bluesky_events (rev, commit_time, repo, record)
-            VALUES (?, ?, ?, ?)
-            """,
-            [rev, commit_time, repo, record_json]
+    # Create table if it doesn't already exist
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS events (
+            kafka_key TEXT,
+            kafka_offset BIGINT,
+            event_json JSON
         )
+    """)
 
-        consumer.commit(asynchronous=False)
-        print(f"Inserted rev={rev} into DuckDB.")
+    app = Application(
+        broker_address=KAFKA_BROKER,
+        loglevel="DEBUG",
+        consumer_group="bluesky-consumer",
+        auto_offset_reset="earliest",
+        producer_extra_config={
+            "broker.address.family": "v4"
+        }
+    )
 
-except KeyboardInterrupt:
-    print("\nStopping consumer...")
+    while True:
+        try:
+            with app.get_consumer() as consumer:
+                consumer.subscribe([TOPIC_NAME])
+                print("Consumer started. Listening for messages...")
 
-finally:
-    consumer.close()
-    db.close()
-    print("Consumer closed & DB connection closed.")
+                while True:
+                    msg = consumer.poll(1)
+
+                    if msg is None:
+                        continue
+
+                    if msg.error() is not None:
+                        print(f"Consumer error: {msg.error()}")
+                        continue
+
+                    # Parse and store message safely
+                    try:
+                        key = msg.key().decode("utf8") if msg.key() else None
+                        value = json.loads(msg.value())
+                        offset = msg.offset()
+
+                        conn.execute(
+                            """
+                            INSERT INTO events (kafka_key, kafka_offset, event_json)
+                            VALUES (?, ?, ?)
+                            """,
+                            (key, offset, json.dumps(value))
+                        )
+
+                        # Commit Kafka offset
+                        consumer.store_offsets(msg)
+
+                        print(f"Stored offset={offset}, key={key}")
+
+                    except json.JSONDecodeError as e:
+                        print(f"JSON decode error for message at offset {msg.offset()}: {e}")
+                    except Exception as e:
+                        print(f"Error processing message at offset {msg.offset()}: {e}")
+
+        except Exception as e:
+            print(f"Consumer connection error: {e}, reconnecting in 5 seconds...")
+            time.sleep(5)  # Backoff before retrying
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nConsumer stopped by user.")
