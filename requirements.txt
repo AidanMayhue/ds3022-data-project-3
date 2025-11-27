@@ -1,0 +1,11 @@
+quixstreams
+websocket-client
+duckdb
+pandas
+nltk
+plotly
+dash
+dash-bootstrap-components
+sentence-transformers
+torch
+transformers
