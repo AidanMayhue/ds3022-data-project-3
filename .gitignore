@@ -1,7 +1,7 @@
-.duckdb
-.wal
+*.duckdb
+*.wal
 venv/
-.npz
-.duckdb.wal
+*.npz
+*.duckdb.wal
 events.duckdb
 bluesky_embeddings.npz
