@@ -26,4 +26,4 @@ Start the producer to stream data, then run the consumer to store it. After you 
 This pipeline demonstrates a full real-time data workflow, from ingesting live posts to analyzing content and visualizing insights.
 
 ## Project Overview
-See the project overview folder for a more detailed summary of our work :)
+See the Project_Overview folder for a more detailed summary of our work and the submission requirements :)
