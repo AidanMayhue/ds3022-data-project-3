@@ -22,8 +22,8 @@ Offer a brief analysis of the data with your findings. Keep it to one brief, cle
 
 
 ## Plot / Visualization
+<img width="1117" height="920" alt="Screenshot 2025-12-01 at 11 14 20 AM" src="https://github.com/user-attachments/assets/bb0d77f7-f3db-423e-b66f-bf560167b7df" />
 
-Include at least one compelling plot or visualization of your work. Add images in your subdirectory and then display them using markdown in your README.md file.
 
 ## GitHub Repository
 
