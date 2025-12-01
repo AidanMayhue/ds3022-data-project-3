@@ -24,3 +24,6 @@ Provides an interactive interface to explore the data: see sentiment distributio
 Start the producer to stream data, then run the consumer to store it. After you have some posts collected, run embeddings and sentiment analysis to process the content. Finally, open the dashboard to explore the results visually.
 
 This pipeline demonstrates a full real-time data workflow, from ingesting live posts to analyzing content and visualizing insights.
+
+## Project Overview
+See the project overview folder for a more detailed summary of our work :)
