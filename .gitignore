@@ -1,7 +1,0 @@
-*.duckdb
-*.wal
-venv/
-*.npz
-*.duckdb.wal
-events.duckdb
-bluesky_embeddings.npz
