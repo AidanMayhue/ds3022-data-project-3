@@ -1,72 +1,154 @@
 import duckdb
 import pandas as pd
-import re
-import logging
-import plotly.express as px
 from dash import Dash, dcc, html
 from dash.dependencies import Input, Output
+import plotly.express as px
+from wordcloud import WordCloud
+import base64
+from io import BytesIO
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Helper: wrap long hover text
+def wrap_text(s, width=60):
+    import textwrap
+    if not isinstance(s, str):
+        return ""
+    return "<br>".join(textwrap.wrap(s, width))
 
-try:
-    conn = duckdb.connect("events.duckdb")
-    df = conn.execute("SELECT event_json, sentiment_label FROM events").fetchdf()
-except Exception as e:
-    logging.error(f"Failed to load data: {e}")
-    df = pd.DataFrame(columns=['event_json', 'sentiment_label'])
+# Helper: generate a word cloud and return it as base64 PNG
+def generate_wordcloud(text_series, max_words=20):
+    all_text = " ".join([t for t in text_series.dropna().astype(str)])
 
-if df.empty:
-    logging.warning("No data available for dashboard.")
-else:
-    # Extract fields safely
-    df['text'] = df['event_json'].apply(lambda x: x.get('text','') if isinstance(x, dict) else '')
-    df['timestamp'] = df['event_json'].apply(lambda x: x.get('timestamp') if isinstance(x, dict) else None)
-    df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
-    df['hashtags'] = df['text'].apply(lambda t: re.findall(r"#(\w+)", t))
+    wc = WordCloud(
+        width=800,
+        height=400,
+        max_words=max_words,
+        background_color="white",
+        colormap="viridis"
+    ).generate(all_text)
 
+    buffer = BytesIO()
+    wc.to_image().save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode()
+    return f"data:image/png;base64,{encoded}"
+
+# Load data from DuckDB
+conn = duckdb.connect("events.duckdb", read_only=True)
+df = conn.execute("""
+    SELECT
+      kafka_key,
+      event_json->>'$.commit.record.text' AS text,
+      sentiment_label,
+      sentiment_compound
+    FROM events
+    WHERE event_json->>'$.commit.record.text' IS NOT NULL
+""").fetchdf()
+conn.close()
+
+# Remove rows missing sentiment scores
+df = df.dropna(subset=['sentiment_compound'])
+
+# Standardize label casing
+df['sentiment_label'] = df['sentiment_label'].str.lower()
+
+# Colors for sentiment
+color_map = {
+    'positive': 'green',
+    'negative': 'red',
+    'neutral': 'gray'
+}
+
+# Dash app layout
 app = Dash(__name__)
+
 app.layout = html.Div([
-    html.H1("Bluesky Dashboard"),
-    dcc.DatePickerRange(
-        id='date-picker',
-        min_date_allowed=df['timestamp'].min() if not df.empty else None,
-        max_date_allowed=df['timestamp'].max() if not df.empty else None,
-        start_date=df['timestamp'].min() if not df.empty else None,
-        end_date=df['timestamp'].max() if not df.empty else None
-    ),
-    dcc.Graph(id='sentiment-over-time'),
-    dcc.Graph(id='top-hashtags')
+    html.H1("Bluesky Posts Sentiment Dashboard"),
+
+    dcc.Graph(id='sentiment-distribution'),
+    dcc.Graph(id='sentiment-label-counts'),
+    dcc.Graph(id='most-negative'),
+    dcc.Graph(id='most-positive'),
+
+    html.H2("Top 20 Most Frequent Words"),
+    html.Img(id="wordcloud-img", style={"width": "80%", "height": "auto"})
 ])
 
+# Main callback to generate all charts
 @app.callback(
-    Output('sentiment-over-time', 'figure'),
-    Output('top-hashtags', 'figure'),
-    Input('date-picker', 'start_date'),
-    Input('date-picker', 'end_date')
+    Output('sentiment-distribution', 'figure'),
+    Output('sentiment-label-counts', 'figure'),
+    Output('most-negative', 'figure'),
+    Output('most-positive', 'figure'),
+    Output('wordcloud-img', 'src'),
+    Input('sentiment-distribution', 'id')  # dummy trigger on load
 )
-def update_charts(start_date, end_date):
-    if df.empty:
-        return px.line(title="No data"), px.bar(title="No data")
-    
-    filtered = df[(df['timestamp'] >= start_date) & (df['timestamp'] <= end_date)]
-    
-    try:
-        sentiment_time = filtered.groupby([pd.Grouper(key='timestamp', freq='H'), 'sentiment_label']).size().reset_index(name='count')
-        fig_sentiment = px.line(sentiment_time, x='timestamp', y='count', color='sentiment_label', title='Sentiment Over Time')
-    except Exception as e:
-        logging.warning(f"Failed to create sentiment chart: {e}")
-        fig_sentiment = px.line(title="Error generating chart")
-    
-    try:
-        hashtags_flat = [tag for tags in filtered['hashtags'] for tag in tags]
-        top_tags = pd.Series(hashtags_flat).value_counts().nlargest(20).reset_index()
-        top_tags.columns = ['hashtag', 'count']
-        fig_hashtags = px.bar(top_tags, x='hashtag', y='count', title='Top 20 Hashtags')
-    except Exception as e:
-        logging.warning(f"Failed to create hashtags chart: {e}")
-        fig_hashtags = px.bar(title="Error generating chart")
-    
-    return fig_sentiment, fig_hashtags
+def update_graphs(_):
 
-if __name__ == "__main__":
-    app.run_server(debug=True)
+    # Sentiment histogram
+    fig_dist = px.histogram(
+        df,
+        x='sentiment_compound',
+        nbins=50,
+        color='sentiment_label',
+        color_discrete_map=color_map,
+        title="Sentiment Score Distribution"
+    )
+
+    # Counts per sentiment label
+    label_counts = df['sentiment_label'].value_counts().reset_index()
+    label_counts.columns = ['sentiment_label', 'count']
+
+    fig_labels = px.bar(
+        label_counts,
+        x='sentiment_label',
+        y='count',
+        color='sentiment_label',
+        color_discrete_map=color_map,
+        title="Count by Sentiment Label"
+    )
+
+    # Top 10 negative posts
+    most_negative = df.sort_values('sentiment_compound', ascending=True).head(10)
+    most_negative = most_negative.reset_index(drop=True)
+    most_negative['rank'] = most_negative.index + 1
+    most_negative['wrapped_text'] = most_negative['text'].apply(lambda x: wrap_text(x, 60))
+
+    fig_neg = px.bar(
+        most_negative,
+        x='rank',
+        y='sentiment_compound',
+        color='sentiment_label',
+        color_discrete_map=color_map,
+        title="Top 10 Most Negative Posts"
+    )
+    fig_neg.update_traces(customdata=most_negative['wrapped_text'])
+    fig_neg.update_traces(
+        hovertemplate="<b>Sentiment score:</b> %{y}<br><br><b>Post:</b><br>%{customdata}<extra></extra>"
+    )
+
+    # Top 10 positive posts
+    most_positive = df.sort_values('sentiment_compound', ascending=False).head(10)
+    most_positive = most_positive.reset_index(drop=True)
+    most_positive['rank'] = most_positive.index + 1
+    most_positive['wrapped_text'] = most_positive['text'].apply(lambda x: wrap_text(x, 60))
+
+    fig_pos = px.bar(
+        most_positive,
+        x='rank',
+        y='sentiment_compound',
+        color='sentiment_label',
+        color_discrete_map=color_map,
+        title="Top 10 Most Positive Posts"
+    )
+    fig_pos.update_traces(customdata=most_positive['wrapped_text'])
+    fig_pos.update_traces(
+        hovertemplate="<b>Sentiment score:</b> %{y}<br><br><b>Post:</b><br>%{customdata}<extra></extra>"
+    )
+
+    # Word cloud (top 20 most frequent words)
+    wordcloud_img = generate_wordcloud(df['text'], max_words=20)
+
+    return fig_dist, fig_labels, fig_neg, fig_pos, wordcloud_img
+
+# Start the server
+if __name__ == '__main__':
+    app.run(debug=True)
