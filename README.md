@@ -30,4 +30,4 @@ Plots from our dashboard showed that sentiment found in posts was predominantly 
 
 ## GitHub Repository
 
-https://github.com/
+[https://github.com/](https://github.com/AidanMayhue/dp3-work)
